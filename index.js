@@ -13,12 +13,14 @@ app.use(express.json());
 //  global browser
 let browser = null;
 const launchBrowser = async() => {
-    browser = await puppeteer.launch({ headless: 'new' });
+    browser = await puppeteer.launch({ headless: true });
 }
 launchBrowser();
 
 app.get('/earning', (req, res) => {
     const { symbol, url } = req.query;
+
+    console.log(`[/earning] symbol: ${symbol}, url: ${url}`);
 
     if(url)
         getEarning({ browser, symbol, url }).then(json => res.json(json));
@@ -34,6 +36,8 @@ app.get('/earning', (req, res) => {
 app.get('/earning-list', (req, res) => {
     const watchlist_url = req.query.watchlist_url || "";
     
+    console.log(`[/earning-list] watchlist_url: ${watchlist_url}`);
+
     (watchlist_url)?
         getEarningList({ browser, watchlist_url }).then(symbol_list => res.json(symbol_list)): 
         res.json([]);
