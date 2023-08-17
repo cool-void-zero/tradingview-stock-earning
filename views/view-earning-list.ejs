@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+ <head>
+  <title>TradingView - Fetch Earning List</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- jQuery 3.7.0 -->
+  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+  <!-- Bootstrap 5.3.0 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz" crossorigin="anonymous"></script>
+  <!-- Bootstrap-Table 1.22.1 -->
+  <link href="https://unpkg.com/bootstrap-table@1.22.1/dist/bootstrap-table.min.css" rel="stylesheet">
+  <script src="https://unpkg.com/bootstrap-table@1.22.1/dist/bootstrap-table.min.js"></script>
+  <script>
+    
+    /*
+        [Back-End API] 
+    */
+    const getEarning = async({ symbol, url }) => {
+        const api_url = `/earning?symbol=${symbol}&url=${url}`;
+        
+        return new Promise((resolve, reject) => {
+            fetch(api_url)
+                .then(res => res.json())
+                .then(json => resolve(json))
+                .catch(err => reject(err));
+        });
+    }
+
+    const getEarningList = async({ watchlist_url }) => {
+        const api_url = `/earning-list?watchlist_url=${watchlist_url}`;
+        
+        return new Promise((resolve, reject) => {
+            fetch(api_url)
+                .then(res => res.json())
+                .then(json => resolve(json))
+                .catch(err => reject(err));
+        });
+    }
+
+    const getDataIndex = (list = [], target) => {
+        let idx = -1;
+
+        for(let i=0; i<list.length; i++)
+            if(list[i].symbol === target)
+                return i;
+        return idx;
+    }
+    
+    $(() => {
+        let earning_list = JSON.parse(localStorage.getItem("earning_list") || "[]");
+        let is_initial = false;
+
+        if(earning_list.length)
+            $(`#table-earning-list`).bootstrapTable({ data: earning_list });
+        
+        $("#btn-fetch").bind("click", () => {
+            const watchlist_url = $("#watchlist-url").val();
+            
+            if(watchlist_url){
+                earning_list = [];
+
+                getEarningList({ watchlist_url }).then(async data_list => {
+                    earning_list = [...data_list];
+                    localStorage.setItem("earning_list", JSON.stringify(data_list));
+                    
+                    //  update the "data_list" to "#table-earning-list"
+                    if(is_initial)
+                        $("#table-earning-list").bootstrapTable("load", data_list);
+                    else
+                        $(`#table-earning-list`).bootstrapTable({ data: data_list });
+                    
+                    console.log(`[${new Date().toISOString()}] Start Fetch Individual Earning Date.`);
+                    for(let i=0; i<earning_list.length; i++){
+                        const { symbol, url } = earning_list[i];
+
+                        try{
+                            const json = await getEarning({ symbol, url });
+                            const idx = getDataIndex(earning_list, json.symbol);
+                            
+                            if(idx !== -1){
+                                if(json.is_stock)
+                                    earning_list[idx] = json;
+                                else{
+                                    earning_list.splice(idx, 1);
+                                    i--;
+                                }
+
+                                //  update the "earning_list" to local cache
+                                localStorage.setItem("earning_list", JSON.stringify(earning_list));
+                            }
+                            
+                            $("#table-earning-list").bootstrapTable("load", earning_list);
+                        }catch(error){
+                            const err_msg = `[getEarning] Fail to fetch "${symbol}"\n(${url})`;
+
+                            console.error(error);
+                            console.log(err_msg);
+
+                            alert(err_msg);
+                        }
+                    }
+                    console.log(`[${new Date().toISOString()}] End Fetch Individual Earning Date.`);
+                })
+                .catch(err => {
+                    console.error(err);
+                    
+                    alert(`Fail to request API.`);
+                });
+            }
+            else
+                alert(`Please input a "TradingView - Watchlist Url".`);
+        });
+    });
+
+  </script>
+ </head>
+ <body class="text-light bg-dark">
+  
+  <!-- Container: Main -->
+  <div class="container-xxl">
+   <!-- Input: Watchlist Url -->
+   <div class="form-floating m-auto mt-5 w-50 text-dark">
+    <input id="watchlist-url" type="url" class="form-control" 
+        value="https://www.tradingview.com/watchlists/85999770/" placeholder="Watchlist Url" />
+    <label for="watchlist-url">Watchlist Url</label>
+   </div>
+   <!-- End of Input: Watchlist Url -->
+   
+   <button id="btn-fetch" class="btn d-flex m-auto my-5 px-5 btn-outline-success">Fetch</button>
+   
+   <!-- Table: Earning List -->
+   <table id="table-earning-list" class="table table-primary table-striped" 
+        data-search="true"
+        data-search-align="left"
+        data-search-highlight="true"
+
+        data-show-columns="true"
+        data-show-columns-toggle-all="true"
+
+        data-page-list="[10, 25, 50, 100, all]"
+        data-page-size="25">
+    <thead>
+     <tr>
+      <th data-field="symbol" data-sortable="true">Symbol</th>
+      <th data-field="url" data-sortable="true" data-visible="false">Url</th>
+      <th data-field="next_date" data-sortable="true">Next Date</th>
+      <th data-field="next_days" data-sortable="true">Next Days</th>
+     </tr>
+    </thead>
+   </table>
+   <!-- End of Table: Earning List -->
+  </div>
+  <!-- End of Container: Main -->
+  
+ </body>
+</html>
