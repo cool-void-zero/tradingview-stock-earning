@@ -52,6 +52,7 @@
         let earning_list = JSON.parse(localStorage.getItem("earning_list") || "[]");
         let is_initial = false;
 
+        earning_list.sort((a, b) => a.next_days - b.next_days);
         if(earning_list.length)
             $(`#table-earning-list`).bootstrapTable({ data: earning_list });
         
