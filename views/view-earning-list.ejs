@@ -6,6 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- jQuery 3.7.0 -->
   <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+  <!-- Fontawesome 6.4.2 -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet" integrity="sha512-z3gLpd7yknf1YoNbCzqRKc4qyor8gaKU1qmn+CShxbuBusANI9QpRohGBreCFkKxLhei6S9CQXFEbbKuqLg0DA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <!-- Bootstrap 5.3.0 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz" crossorigin="anonymous"></script>
@@ -47,12 +49,60 @@
                 return i;
         return idx;
     }
+
+    /*
+    {
+        "symbol":"TSLA",
+        "url":"https://www.tradingview.com/symbols/NASDAQ-TSLA/",
+        "is_stock":true,
+        "next_date":"2023-10-18",
+        "next_days":62
+    },
+    */
+
+    //  base on "next_date" to re-calculate "next_days"
+    const updateNextDays = (list = []) => {
+        const new_list = list.map(obj => {
+            //  next report date
+            const d2 = new Date(obj.next_date);
+            //  now the date (clear the time)
+            const d1 = new Date(new Date().toISOString().substring(0, 10));
+            const diff = d2.getTime() - d1.getTime();
+            const next_days = diff / 24 / 60 / 60 / 1000;
+
+            return {
+                ...obj, 
+                next_days
+            }
+        });
+        
+        return new_list;
+    }
+
+    //  convert the "list" for "bootstrapTable({ data })"
+    const convertTableData = (list = []) => {
+        //  highlight overdue "next_days" to red text color
+        list = list.map(obj => {
+            if(obj.next_days < 0)
+                for(const prop in obj)
+                    obj[prop] = `<span class="text-danger">${obj[prop]}</span>`;
+            return obj;
+        });
+
+        return list;
+    }
     
     $(() => {
         let earning_list = JSON.parse(localStorage.getItem("earning_list") || "[]");
         let is_initial = false;
-
+        let fetch_mode = "watchlist";
+        
+        earning_list = updateNextDays(earning_list);
         earning_list.sort((a, b) => a.next_days - b.next_days);
+        //  update to cache (localStorage)
+        localStorage.setItem("earning_list", JSON.stringify(earning_list));
+        earning_list = convertTableData(earning_list);
+        
         if(earning_list.length)
             $(`#table-earning-list`).bootstrapTable({ data: earning_list });
         
@@ -113,6 +163,24 @@
             else
                 alert(`Please input a "TradingView - Watchlist Url".`);
         });
+    
+        $("#switch-mode").bind("change", () => {
+            const is_watchlist = document.querySelector("#switch-mode").checked;
+            const mode = (is_watchlist)? "Watchlist": "Symbol";
+            
+            if(mode === "Watchlist"){
+                $("#symbol-url").parent().parent().addClass("d-none");
+                $("#watchlist-url").parent().parent().removeClass("d-none");
+
+                $("#switch-mode-label").html(`Watchlist Url`);
+            }
+            else if(mode === "Symbol"){
+                $("#symbol-url").parent().parent().removeClass("d-none");
+                $("#watchlist-url").parent().parent().addClass("d-none");
+                
+                $("#switch-mode-label").html(`Symbol Url`);
+            }
+        });
     });
 
   </script>
@@ -121,15 +189,45 @@
   
   <!-- Container: Main -->
   <div class="container-xxl">
-   <!-- Input: Watchlist Url -->
-   <div class="form-floating m-auto mt-5 w-50 text-dark">
-    <input id="watchlist-url" type="url" class="form-control" 
-        value="https://www.tradingview.com/watchlists/85999770/" placeholder="Watchlist Url" />
-    <label for="watchlist-url">Watchlist Url</label>
+   <div class="row mt-5">
+    <div class="col d-flex align-items-center justify-content-center form-check form-switch">
+     <input class="form-check-input" id="switch-mode" checked 
+        type="checkbox" role="switch" />
+     <label class="form-check-label ms-2" id="switch-mode-label" for="switch-mode">
+      Watchlist Url
+     </label>
+    </div>
    </div>
-   <!-- End of Input: Watchlist Url -->
-   
-   <button id="btn-fetch" class="btn d-flex m-auto my-5 px-5 btn-outline-success">Fetch</button>
+
+   <div class="row">
+    <!-- Input: Symbol Url -->
+    <div class="col d-none">
+     <div class="form-floating m-auto mt-2 w-50 text-dark">
+      <input id="symbol-url" type="url" class="form-control" 
+        placeholder="Symbol Url" />
+      <label for="symbol-url" class="ms-2">
+       <i class="fa-solid fa-link me-2"></i>Symbol Url
+      </label>
+     </div>
+    </div>
+    <!-- End of Input: Symbol Url -->
+
+    <!-- Input: Watchlist Url -->
+    <div class="col">
+     <div class="form-floating m-auto mt-2 w-50 text-dark">
+      <input id="watchlist-url" type="url" class="form-control" 
+        value="https://www.tradingview.com/watchlists/85999770/" placeholder="Watchlist Url" />
+      <label for="watchlist-url" class="ms-2">
+       <i class="fa-solid fa-link me-2"></i>Watchlist Url
+      </label>
+     </div>
+    </div>
+    <!-- End of Input: Watchlist Url -->
+   </div>
+
+   <button id="btn-fetch" class="btn d-flex align-items-center m-auto my-5 px-5 btn-outline-success">
+    <i class="fa-solid fa-cloud-arrow-down me-2"></i>Fetch
+   </button>
    
    <!-- Table: Earning List -->
    <table id="table-earning-list" class="table table-primary table-striped" 
@@ -144,10 +242,18 @@
         data-page-size="25">
     <thead>
      <tr>
-      <th data-field="symbol" data-sortable="true">Symbol</th>
-      <th data-field="url" data-sortable="true" data-visible="false">Url</th>
-      <th data-field="next_date" data-sortable="true">Next Date</th>
-      <th data-field="next_days" data-sortable="true">Next Days</th>
+      <th data-field="symbol" data-sortable="true">
+        <i class="fa-solid fa-money-bill me-2"></i>Symbol
+      </th>
+      <th data-field="url" data-sortable="true" data-visible="false">
+        <i class="fa-solid fa-link me-2"></i>Url
+      </th>
+      <th data-field="next_date" data-sortable="true">
+        <i class="fa-solid fa-calendar-days me-2"></i>Next Date
+      </th>
+      <th data-field="next_days" data-sortable="true">
+        <i class="fa-solid fa-calendar-check me-2"></i>Next Days
+      </th>
      </tr>
     </thead>
    </table>

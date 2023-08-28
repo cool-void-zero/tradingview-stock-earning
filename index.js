@@ -13,7 +13,7 @@ app.use(express.json());
 //  global browser
 let browser = null;
 const launchBrowser = async() => {
-    browser = await puppeteer.launch({ headless: true });
+    browser = await puppeteer.launch({ headless: 'new' });
 }
 launchBrowser();
 
@@ -51,4 +51,4 @@ app.get('/view-earning-list', (req, res) => {
     res.render('view-earning-list');
 });
 
-app.listen(port, () => console.log(`Fetch earning list service on "${[port]}" port.`));
+app.listen(port, () => console.log(`Service running on "http://localhost:${port}".`));
