@@ -50,15 +50,21 @@
         return idx;
     }
 
-    /*
-    {
-        "symbol":"TSLA",
-        "url":"https://www.tradingview.com/symbols/NASDAQ-TSLA/",
-        "is_stock":true,
-        "next_date":"2023-10-18",
-        "next_days":62
-    },
-    */
+    const deleteRowData = (
+        symbol, list = JSON.parse(localStorage.getItem("earning_list"))
+    ) => {
+        if(confirm(`Confirm to delete "${symbol}" from this list?`)){
+            const idx = getDataIndex(list, symbol);
+
+            if(idx !== -1){
+                list.splice(idx, 1);
+
+                //  update the "earning_list" to local cache
+                localStorage.setItem("earning_list", JSON.stringify(list));
+                $("#table-earning-list").bootstrapTable("load", convertTableData(list));
+            }
+        }
+    }
 
     //  base on "next_date" to re-calculate "next_days"
     const updateNextDays = (list = []) => {
@@ -81,17 +87,202 @@
 
     //  convert the "list" for "bootstrapTable({ data })"
     const convertTableData = (list = []) => {
-        //  highlight overdue "next_days" to red text color
-        list = list.map(obj => {
-            if(obj.next_days < 0)
-                for(const prop in obj)
-                    obj[prop] = `<span class="text-danger">${obj[prop]}</span>`;
-            return obj;
-        });
+        let new_list = [...list];
 
-        return list;
+        return new_list.map(item => {
+            const { symbol, next_days } = item;
+            
+            //  if already outdated, highlight to red color
+            if(next_days < 0)
+                for(const prop in item){
+                    if(prop !== "_action")
+                        item[prop] = `<span class="text-danger">${item[prop]}</span>`;
+                }
+            
+            //  add the delete button for each row
+            item['_action'] = `
+                <button class="btn btn-delete d-flex align-items-center m-auto px-4 btn-outline-danger"
+                    onClick="deleteRowData('${symbol}')">
+
+                  <i class="fa-solid fa-trash me-2"></i>Delete
+                </button>
+            `;
+
+            return item;
+        });
+    }
+
+    const updateProgressBar = ({
+        element_id = "progress-bar", 
+        current = 0,
+        total,
+    }) => {
+        const percent = current / total;
+        const percent_txt = (percent * 100).toFixed(2) + '%';
+
+        $(`#${element_id}`).css("width", percent_txt);
+        $(`#${element_id}`).html(percent_txt + ` (${current}/${total}) `);
+    }
+
+    const renewOutdate = async(list = []) => {
+        try{
+            const outdated_list = list.filter(obj => obj.next_days < 0); 
+            const total_update = outdated_list.length;
+            const confirm_msg = `"${outdated_list.map(obj => obj.symbol).join(", ")}" stock data already outdated, update now?`;
+            let updated = 0;
+
+            if(total_update && confirm(confirm_msg)){
+                $("#progress-container").removeClass("d-none");
+                $("#btn-fetch").attr("disabled", "");
+
+                for(let i=0; i<list.length; i++){
+                    const { symbol, url, next_days } = list[i];
+
+                    if(next_days < 0){
+                        const msg = `Updating: "${symbol}"`;
+
+                        console.log(msg);
+                        //  show the progress info
+                        $("#progress-status").html(msg);
+                        updateProgressBar({
+                            current: updated, 
+                            total: total_update
+                        });
+
+                        const json = await getEarning({ symbol, url });
+                        list[i] = json;
+
+                        updated++;
+
+                        //  update progress info
+                        updateProgressBar({
+                            current: updated, 
+                            total: total_update
+                        });
+                    }
+                }
+                
+                $("#btn-fetch").removeAttr("disabled");
+            }
+
+            if(total_update !== 0 && updated === total_update){
+                const msg = `Updated all the data`;
+
+                alert(msg);
+                $("#progress-status").html(msg);
+
+                updateProgressBar({
+                    current: updated, 
+                    total: total_update
+                });
+            }
+
+            return list;
+        }catch(err){
+            console.error(err);
+            console.log(`Fail to request "/earning".`);
+
+            return list;
+        }
     }
     
+    const fetchBySymbol = async({ list, symbol, url }) => {
+        try{
+            //  show the progress info
+            const msg = `Fetching: "${symbol}"`;
+            $("#progress-container").removeClass("d-none");
+            $("#progress-status").html(msg);
+            console.log(msg);
+            updateProgressBar({ total: 1 });
+
+            const json = await getEarning({ symbol, url });
+            const idx = getDataIndex(list, symbol);
+            
+            //  add (this symbol stock not exist)
+            if(idx === -1)
+                list.push(json);
+            //  update (this symbol stock exist)
+            else
+                list[idx] = json;
+            
+            //  update progress info
+            updateProgressBar({ current: 1, total: 1 });
+
+            return list;
+        }catch(err){
+            console.error(err);
+            console.log(`Fail to request "/earning".`);
+
+            return list;
+        }
+    }
+
+    const fetchByWatchlist = async(watchlist_url) => {
+        getEarningList({ watchlist_url }).then(async data_list => {
+            let earning_list = [...data_list];
+            let fetched = 0;
+
+            localStorage.setItem("earning_list", JSON.stringify(data_list));
+            $("#table-earning-list").bootstrapTable("load", convertTableData(data_list));
+            
+            $("#progress-container").removeClass("d-none");
+            console.log(`[${new Date().toISOString()}] Start Fetch Individual Earning Date.`);
+            for(let i=0; i<earning_list.length; i++){
+                const { symbol, url } = earning_list[i];
+
+                try{
+                    //  show the progress info
+                    const msg = `Fetching: "${symbol}"`;
+                    $("#progress-status").html(msg);
+                    console.log(msg);
+                    updateProgressBar({ 
+                        current: i, 
+                        total: earning_list.length 
+                    });
+
+                    const json = await getEarning({ symbol, url });
+                    const idx = getDataIndex(earning_list, json.symbol);
+                    
+                    if(idx !== -1){
+                        if(json.is_stock)
+                            earning_list[idx] = json;
+                        else{
+                            earning_list.splice(idx, 1);
+                            i--;
+                        }
+
+                        //  update the "earning_list" to local cache
+                        localStorage.setItem("earning_list", JSON.stringify(earning_list));
+                    }
+                    
+                    updateProgressBar({ 
+                        current: i + 1, 
+                        total: earning_list.length 
+                    });
+                    $("#table-earning-list").bootstrapTable("load", convertTableData(earning_list));
+                }catch(error){
+                    const err_msg = `[getEarning] Fail to fetch "${symbol}"\n(${url})`;
+
+                    console.error(error);
+                    console.log(err_msg);
+
+                    alert(err_msg);
+
+                    return earning_list;
+                }
+            }
+            console.log(`[${new Date().toISOString()}] End Fetch Individual Earning Date.`);
+
+            return earning_list;
+        })
+        .catch(err => {
+            console.error(err);
+            
+            alert(`Fail to request API.`);
+            return [];
+        });
+    }
+
     $(() => {
         let earning_list = JSON.parse(localStorage.getItem("earning_list") || "[]");
         let is_initial = false;
@@ -101,64 +292,64 @@
         earning_list.sort((a, b) => a.next_days - b.next_days);
         //  update to cache (localStorage)
         localStorage.setItem("earning_list", JSON.stringify(earning_list));
-        earning_list = convertTableData(earning_list);
+
+        let list2 = JSON.parse(localStorage.getItem("earning_list") || "[]");
+        renewOutdate(list2).then(result_list => {
+            earning_list = [...result_list];
+            earning_list.sort((a, b) => a.next_days - b.next_days);
+            localStorage.setItem("earning_list", JSON.stringify(earning_list));
+
+            $(`#table-earning-list`).bootstrapTable("load", convertTableData(earning_list));
+        });
         
-        if(earning_list.length)
-            $(`#table-earning-list`).bootstrapTable({ data: earning_list });
-        
+        $(`#table-earning-list`).bootstrapTable({ data: 
+            convertTableData([...earning_list])
+        });
+
         $("#btn-fetch").bind("click", () => {
             const watchlist_url = $("#watchlist-url").val();
             
             if(watchlist_url){
-                earning_list = [];
+                if(fetch_mode === "watchlist"){
+                    const is_action = confirm(`Confirm re-fetch all data?`);
+            
+                    if(!is_action) return;
 
-                getEarningList({ watchlist_url }).then(async data_list => {
-                    earning_list = [...data_list];
-                    localStorage.setItem("earning_list", JSON.stringify(data_list));
+                    $("#btn-fetch").attr("disabled", "");
+
+                    fetchByWatchlist(watchlist_url).then(result_list => {
+                        //  update exist list
+                        earning_list = [...result_list];
+                        earning_list.sort((a, b) => a.next_days - b.next_days);
+                        localStorage.setItem("earning_list", JSON.stringify(earning_list));
+
+                        $(`#table-earning-list`).bootstrapTable("load", convertTableData(earning_list));
+                        $("#btn-fetch").removeAttr("disabled");
+                    });
+                }
+                else if(fetch_mode === "symbol"){
+                    $("#btn-fetch").attr("disabled", "");
+                    const url = $("#symbol-url").val();
+                    //  index of symbol
+                    const idx = url.lastIndexOf('-');
+                    const symbol = (idx !== -1)? 
+                        url.substring(idx + 1).replace(/\//g, ""): 
+                        "";
                     
-                    //  update the "data_list" to "#table-earning-list"
-                    if(is_initial)
-                        $("#table-earning-list").bootstrapTable("load", data_list);
-                    else
-                        $(`#table-earning-list`).bootstrapTable({ data: data_list });
-                    
-                    console.log(`[${new Date().toISOString()}] Start Fetch Individual Earning Date.`);
-                    for(let i=0; i<earning_list.length; i++){
-                        const { symbol, url } = earning_list[i];
-
-                        try{
-                            const json = await getEarning({ symbol, url });
-                            const idx = getDataIndex(earning_list, json.symbol);
-                            
-                            if(idx !== -1){
-                                if(json.is_stock)
-                                    earning_list[idx] = json;
-                                else{
-                                    earning_list.splice(idx, 1);
-                                    i--;
-                                }
-
-                                //  update the "earning_list" to local cache
-                                localStorage.setItem("earning_list", JSON.stringify(earning_list));
-                            }
-                            
-                            $("#table-earning-list").bootstrapTable("load", earning_list);
-                        }catch(error){
-                            const err_msg = `[getEarning] Fail to fetch "${symbol}"\n(${url})`;
-
-                            console.error(error);
-                            console.log(err_msg);
-
-                            alert(err_msg);
-                        }
-                    }
-                    console.log(`[${new Date().toISOString()}] End Fetch Individual Earning Date.`);
-                })
-                .catch(err => {
-                    console.error(err);
-                    
-                    alert(`Fail to request API.`);
-                });
+                    fetchBySymbol({
+                        list: earning_list, 
+                        symbol, 
+                        url, 
+                    }).then(result_list => {
+                        //  update exist list
+                        earning_list = [...result_list];
+                        earning_list.sort((a, b) => a.next_days - b.next_days);
+                        localStorage.setItem("earning_list", JSON.stringify(earning_list));
+                        
+                        $(`#table-earning-list`).bootstrapTable("load", convertTableData(earning_list));
+                        $("#btn-fetch").removeAttr("disabled");
+                    });
+                }
             }
             else
                 alert(`Please input a "TradingView - Watchlist Url".`);
@@ -167,6 +358,7 @@
         $("#switch-mode").bind("change", () => {
             const is_watchlist = document.querySelector("#switch-mode").checked;
             const mode = (is_watchlist)? "Watchlist": "Symbol";
+            fetch_mode = (is_watchlist)? "watchlist": "symbol";
             
             if(mode === "Watchlist"){
                 $("#symbol-url").parent().parent().addClass("d-none");
@@ -225,10 +417,27 @@
     <!-- End of Input: Watchlist Url -->
    </div>
 
-   <button id="btn-fetch" class="btn d-flex align-items-center m-auto my-5 px-5 btn-outline-success">
+   <button id="btn-fetch" class="btn d-flex align-items-center m-auto mt-5 px-5 btn-outline-success">
     <i class="fa-solid fa-cloud-arrow-down me-2"></i>Fetch
    </button>
    
+   <div id="progress-container" class="row d-none my-3">
+    <!-- Progress Bar -->
+    <div class="col-12">
+
+     <div class="progress" role="progressbar" aria-label="Update Progress" 
+        aria-valuenow="75" aria-valuemin="0" aria-valuemax="100">
+      <div id="progress-bar" class="progress-bar bg-success progress-bar-striped progress-bar-animated">
+       0%
+      </div>
+     </div>
+    </div>
+    <!-- Progress Status -->
+    <div id="progress-status" class="col-lg-auto"></div>
+   </div>
+
+   <hr class="my-4" />
+
    <!-- Table: Earning List -->
    <table id="table-earning-list" class="table table-primary table-striped" 
         data-search="true"
@@ -238,21 +447,25 @@
         data-show-columns="true"
         data-show-columns-toggle-all="true"
 
+        data-pagination="true"
         data-page-list="[10, 25, 50, 100, all]"
-        data-page-size="25">
+        data-page-size="100">
     <thead>
      <tr>
       <th data-field="symbol" data-sortable="true">
-        <i class="fa-solid fa-money-bill me-2"></i>Symbol
+       <i class="fa-solid fa-money-bill me-2"></i>Symbol
       </th>
       <th data-field="url" data-sortable="true" data-visible="false">
-        <i class="fa-solid fa-link me-2"></i>Url
-      </th>
-      <th data-field="next_date" data-sortable="true">
-        <i class="fa-solid fa-calendar-days me-2"></i>Next Date
+       <i class="fa-solid fa-link me-2"></i>Url
       </th>
       <th data-field="next_days" data-sortable="true">
-        <i class="fa-solid fa-calendar-check me-2"></i>Next Days
+       <i class="fa-solid fa-calendar-check me-2"></i>Next Days
+      </th>
+      <th data-field="next_date" data-sortable="true">
+       <i class="fa-solid fa-calendar-days me-2"></i>Next Date
+      </th> 
+      <th data-field="_action">
+       <i class="fa-solid me-2 fa-bullseye"></i>Action
       </th>
      </tr>
     </thead>
